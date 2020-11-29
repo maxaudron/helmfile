@@ -144,6 +144,8 @@ type HelmSpec struct {
 	// as a Helm chart.
 	SkipDeps bool `yaml:"skipDeps"`
 
+	PostRenderer string `yaml:"postRenderer,omitempty"`
+
 	TLS                      bool   `yaml:"tls"`
 	TLSCACert                string `yaml:"tlsCACert,omitempty"`
 	TLSKey                   string `yaml:"tlsKey,omitempty"`
@@ -286,6 +288,8 @@ type ReleaseSpec struct {
 	// This is relevant only when your release uses a local chart or a directory containing K8s manifests or a Kustomization
 	// as a Helm chart.
 	SkipDeps *bool `yaml:"skipDeps"`
+
+	PostRenderer string `yaml:"postRenderer,omitempty"`
 }
 
 type Release struct {
@@ -2109,9 +2113,13 @@ func (st *HelmState) flagsForUpgrade(helm helmexec.Interface, release *ReleaseSp
 		flags = append(flags, "--disable-openapi-validation")
 	}
 
+	flags, err := st.appendPostRendererFlags(flags, release)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	flags = st.appendConnectionFlags(flags, release)
 
-	var err error
 	flags, err = st.appendHelmXFlags(flags, release)
 	if err != nil {
 		return nil, nil, err
@@ -2136,7 +2144,11 @@ func (st *HelmState) flagsForTemplate(helm helmexec.Interface, release *ReleaseS
 		flags = st.chartVersionFlags(release)
 	}
 
-	var err error
+	flags, err := st.appendPostRendererFlags(flags, release)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	flags, err = st.appendHelmXFlags(flags, release)
 	if err != nil {
 		return nil, nil, err
@@ -2176,9 +2188,13 @@ func (st *HelmState) flagsForDiff(helm helmexec.Interface, release *ReleaseSpec,
 		flags = append(flags, "--disable-validation")
 	}
 
+	flags, err := st.appendPostRendererFlags(flags, release)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	flags = st.appendConnectionFlags(flags, release)
 
-	var err error
 	flags, err = st.appendHelmXFlags(flags, release)
 	if err != nil {
 		return nil, nil, err
@@ -2189,6 +2205,25 @@ func (st *HelmState) flagsForDiff(helm helmexec.Interface, release *ReleaseSpec,
 		return nil, files, err
 	}
 	return append(flags, common...), files, nil
+}
+
+func (st *HelmState) appendPostRendererFlags(flags []string, release *ReleaseSpec) ([]string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	if release.PostRenderer != "" {
+		postrenderer := normalizeChart(dir, st.HelmDefaults.PostRenderer)
+		flags = append(flags, "--post-renderer")
+		flags = append(flags, postrenderer)
+	} else if st.HelmDefaults.PostRenderer != "" {
+		postrenderer := normalizeChart(dir, st.HelmDefaults.PostRenderer)
+		flags = append(flags, "--post-renderer")
+		flags = append(flags, postrenderer)
+	}
+
+	return flags, nil
 }
 
 func (st *HelmState) chartVersionFlags(release *ReleaseSpec) []string {

@@ -17,9 +17,9 @@ Note that we will try our best to document any backward incompatibility. And in 
 
 Helmfile is a declarative spec for deploying helm charts. It lets you...
 
-* Keep a directory of chart value files and maintain changes in version control.
-* Apply CI/CD to configuration changes.
-* Periodically sync to avoid skew in environments.
+- Keep a directory of chart value files and maintain changes in version control.
+- Apply CI/CD to configuration changes.
+- Periodically sync to avoid skew in environments.
 
 To avoid upgrades for each iteration of `helm`, the `helmfile` executable delegates to `helm` - as a result, `helm` must be installed.
 
@@ -110,6 +110,10 @@ helmDefaults:
   # When set to `true`, skips running `helm dep up` and `helm dep build` on this release's chart.
   # Useful when the chart is broken, like seen in https://github.com/roboll/helmfile/issues/1547
   skipDeps: false
+  # the path to an executable to be used for post rendering. If it exists in $PATH, the binary will
+  # be used, otherwise it will try to look for the executable at the given path
+  # Takes rendered kuberentes manifests in stdin and output altered result on stdout
+  postRenderer: "binary-post-renderer"
 
 # these labels will be applied to all releases in a Helmfile. Useful in templating if you have a helmfile per environment or customer and don't want to copy the same label to each release
 commonLabels:
@@ -202,6 +206,10 @@ releases:
     # When set to `true`, skips running `helm dep up` and `helm dep build` on this release's chart.
     # Useful when the chart is broken, like seen in https://github.com/roboll/helmfile/issues/1547
     skipDeps: false
+    # the path to an executable to be used for post rendering. If it exists in $PATH, the binary will
+    # be used, otherwise it will try to look for the executable at the given path
+    # Takes rendered kuberentes manifests in stdin and output altered result on stdout
+    postRenderer: "binary-post-renderer"
 
   # Local chart example
   - name: grafana                            # name of this release
@@ -338,8 +346,8 @@ Examples:
 
 ```yaml
 repositories:
-- name: your-private-git-repo-hosted-charts
-  url: https://{{ requiredEnv "GITHUB_TOKEN"}}@raw.githubusercontent.com/kmzfs/helm-repo-in-github/master/
+  - name: your-private-git-repo-hosted-charts
+    url: https://{{ requiredEnv "GITHUB_TOKEN"}}@raw.githubusercontent.com/kmzfs/helm-repo-in-github/master/
 ```
 
 ```yaml
@@ -379,12 +387,12 @@ Suppose the `helmfile.yaml` representing the desired state of your helm releases
 
 ```yaml
 releases:
-- name: prom-norbac-ubuntu
-  namespace: prometheus
-  chart: stable/prometheus
-  set:
-  - name: rbac.create
-    value: false
+  - name: prom-norbac-ubuntu
+    namespace: prometheus
+    chart: stable/prometheus
+    set:
+      - name: rbac.create
+        value: false
 ```
 
 Sync your Kubernetes cluster state to the desired one by running:
@@ -513,8 +521,7 @@ Note that `delete` doesn't purge releases. So `helmfile delete && helmfile sync`
 The `secrets` parameter in a `helmfile.yaml` causes the [helm-secrets](https://github.com/futuresimple/helm-secrets) plugin to be executed to decrypt the file.
 
 To supply the secret functionality Helmfile needs the `helm secrets` plugin installed. For Helm 2.3+
-you should be able to simply execute `helm plugin install https://github.com/futuresimple/helm-secrets
-`.
+you should be able to simply execute `helm plugin install https://github.com/futuresimple/helm-secrets `.
 
 ### test
 
@@ -533,7 +540,7 @@ Using manifest files in conjunction with command line argument can be a bit conf
 A few rules to clear up this ambiguity:
 
 - Absolute paths are always resolved as absolute paths
-- Relative paths referenced *in* the Helmfile manifest itself are relative to that manifest
+- Relative paths referenced _in_ the Helmfile manifest itself are relative to that manifest
 - Relative paths referenced on the command line are relative to the current working directory the user is in
 
 For additional context, take a look at [paths examples](PATHS.md).
@@ -550,7 +557,7 @@ The `selector` parameter can be specified multiple times. Each parameter is reso
 
 `--selector tier=frontend --selector tier=backend` will select all the charts.
 
-In addition to user supplied labels, the name, the namespace, and the chart are available to be used as selectors.  The chart will just be the chart name excluding the repository (Example `stable/filebeat` would be selected using `--selector chart=filebeat`).
+In addition to user supplied labels, the name, the namespace, and the chart are available to be used as selectors. The chart will just be the chart name excluding the repository (Example `stable/filebeat` would be selected using `--selector chart=filebeat`).
 
 `commonLabels` can be used when you want to apply the same label to all releases and use [templating](##Templates) based on that.
 For instance, you install a number of charts on every customer but need to provide different values file per customer.
@@ -563,15 +570,15 @@ templates:
     name: nginx
     chart: stable/nginx-ingress
     values:
-    - ../values/common/{{ .Release.Name }}.yaml
-    - ../values/{{ .Release.Labels.customer }}/{{ .Release.Name }}.yaml
+      - ../values/common/{{ .Release.Name }}.yaml
+      - ../values/{{ .Release.Labels.customer }}/{{ .Release.Name }}.yaml
 
   cert-manager: &cert-manager
     name: cert-manager
     chart: jetstack/cert-manager
     values:
-    - ../values/common/{{ .Release.Name }}.yaml
-    - ../values/{{ .Release.Labels.customer }}/{{ .Release.Name }}.yaml
+      - ../values/common/{{ .Release.Name }}.yaml
+      - ../values/{{ .Release.Labels.customer }}/{{ .Release.Name }}.yaml
 ```
 
 helmfile.yaml:
@@ -608,10 +615,10 @@ You can reference a template of values file in your `helmfile.yaml` like below:
 
 ```yaml
 releases:
-- name: myapp
-  chart: mychart
-  values:
-  - values.yaml.gotmpl
+  - name: myapp
+    chart: mychart
+    values:
+      - values.yaml.gotmpl
 ```
 
 Every values file whose file extension is `.gotmpl` is considered as a template file.
@@ -619,7 +626,11 @@ Every values file whose file extension is `.gotmpl` is considered as a template 
 Suppose `values.yaml.gotmpl` was something like:
 
 ```yaml
-{{ readFile "values.yaml" | fromYaml | setValueAtPath "foo.bar" "FOO_BAR" | toYaml }}
+{
+  {
+    readFile "values.yaml" | fromYaml | setValueAtPath "foo.bar" "FOO_BAR" | toYaml,
+  },
+}
 ```
 
 And `values.yaml` was:
@@ -702,11 +713,11 @@ environments:
   production:
 
 releases:
-- name: newrelic-agent
-  installed: {{ eq .Environment.Name "production" | toYaml }}
-  # snip
-- name: myapp
-  # snip
+  - name: newrelic-agent
+    installed: { { eq .Environment.Name "production" | toYaml } }
+    # snip
+  - name: myapp
+    # snip
 ```
 
 ## Environment Values
@@ -722,12 +733,12 @@ Suppose you have three files `helmfile.yaml`, `production.yaml` and `values.yaml
 environments:
   production:
     values:
-    - production.yaml
+      - production.yaml
 
 releases:
-- name: myapp
-  values:
-  - values.yaml.gotmpl
+  - name: myapp
+    values:
+      - values.yaml.gotmpl
 ```
 
 `production.yaml`
@@ -740,7 +751,7 @@ releaseName: prod
 `values.yaml.gotmpl`
 
 ```yaml
-domain: {{ .Values | get "domain" "dev.example.com" }}
+domain: { { .Values | get "domain" "dev.example.com" } }
 ```
 
 `helmfile sync` installs `myapp` with the value `domain=dev.example.com`,
@@ -817,6 +828,7 @@ First you must have the [helm-secrets](https://github.com/futuresimple/helm-secr
 in the sub-directory containing your secrets files).
 
 Then suppose you have a a foo.bar secret defined in `environments/production/secrets.yaml`:
+
 ```yaml
 foo.bar: "mysupersecretstring"
 ```
@@ -824,23 +836,24 @@ foo.bar: "mysupersecretstring"
 You can then encrypt it with `helm secrets enc environments/production/secrets.yaml`
 
 Then reference that encrypted file in `helmfile.yaml`:
+
 ```yaml
 environments:
   production:
     secrets:
-    - environments/production/secrets.yaml
+      - environments/production/secrets.yaml
 
 releases:
-- name: myapp
-  chart: mychart
-  values:
-  - values.yaml.gotmpl
+  - name: myapp
+    chart: mychart
+    values:
+      - values.yaml.gotmpl
 ```
 
 Then the environment secret `foo.bar` can be referenced by the below template expression in your `values.yaml.gotmpl`:
 
 ```yaml
-{{ .Values.foo.bar }}
+{ { .Values.foo.bar } }
 ```
 
 ## Tillerless
@@ -872,22 +885,22 @@ For the following example, `helmfile [sync|apply]` installs releases in this ord
 3. myapp1 and myapp2
 
 ```yaml
-  - name: myapp1
-    chart: charts/myapp
-    needs:
+- name: myapp1
+  chart: charts/myapp
+  needs:
     - servicemesh
     - logging
-  - name: myapp2
-    chart: charts/myapp
-    needs:
+- name: myapp2
+  chart: charts/myapp
+  needs:
     - servicemesh
     - logging
-  - name: servicemesh
-    chart: charts/istio
-    needs:
+- name: servicemesh
+  chart: charts/istio
+  needs:
     - logging
-  - name: logging
-    chart: charts/fluentd
+- name: logging
+  chart: charts/fluentd
 ```
 
 Note that all the releases in a same group is installed concurrently. That is, myapp1 and myapp2 are installed concurrently.
@@ -958,7 +971,7 @@ Put `myteam/helmfile.yaml` that looks like:
 
 ```yaml
 helmfiles:
-- apps/*/helmfile.yaml
+  - apps/*/helmfile.yaml
 ```
 
 So that you can get rid of the `Makefile` and the bash snippet.
@@ -983,12 +996,12 @@ selectors: []
   selectorsInherited: true
 ```
 
-* When a selector is specified, only this selector applies and the parents or CLI selectors are ignored.
-* When not selector is specified there are 2 modes for the selector inheritance because we would like to change the current inheritance behavior (see [issue #344](https://github.com/roboll/helmfile/issues/344)  ).
-  * Legacy mode, sub-helmfiles without selectors inherit selectors from their parent helmfile. The initial helmfiles inherit from the command line selectors.
-  * explicit mode, sub-helmfile without selectors do not inherit from their parent or the CLI selector. If you want them to inherit from their parent selector then use `selectorsInherited: true`. To enable this explicit mode you need to set the following environment variable `HELMFILE_EXPERIMENTAL=explicit-selector-inheritance` (see [experimental](#experimental-features)).
-* Using `selector: []` will select all releases regardless of the parent selector or cli for the initial helmfile
-* using `selectorsInherited: true` make the sub-helmfile selects releases with the parent selector or the cli for the initial helmfile. You cannot specify an explicit selector while using `selectorsInherited: true`
+- When a selector is specified, only this selector applies and the parents or CLI selectors are ignored.
+- When not selector is specified there are 2 modes for the selector inheritance because we would like to change the current inheritance behavior (see [issue #344](https://github.com/roboll/helmfile/issues/344) ).
+  - Legacy mode, sub-helmfiles without selectors inherit selectors from their parent helmfile. The initial helmfiles inherit from the command line selectors.
+  - explicit mode, sub-helmfile without selectors do not inherit from their parent or the CLI selector. If you want them to inherit from their parent selector then use `selectorsInherited: true`. To enable this explicit mode you need to set the following environment variable `HELMFILE_EXPERIMENTAL=explicit-selector-inheritance` (see [experimental](#experimental-features)).
+- Using `selector: []` will select all releases regardless of the parent selector or cli for the initial helmfile
+- using `selectorsInherited: true` make the sub-helmfile selects releases with the parent selector or the cli for the initial helmfile. You cannot specify an explicit selector while using `selectorsInherited: true`
 
 ## Importing values from any source
 
@@ -1052,15 +1065,19 @@ The following is an example hook that just prints the contextual information pro
 
 ```yaml
 releases:
-- name: myapp
-  chart: mychart
-  # *snip*
-  hooks:
-  - events: ["prepare", "cleanup"]
-    showlogs: true
-    command: "echo"
-    args: ["{{`{{.Environment.Name}}`}}", "{{`{{.Release.Name}}`}}", "{{`{{.HelmfileCommand}}`}}\
-"]
+  - name: myapp
+    chart: mychart
+    # *snip*
+    hooks:
+      - events: ["prepare", "cleanup"]
+        showlogs: true
+        command: "echo"
+        args: [
+            "{{`{{.Environment.Name}}`}}",
+            "{{`{{.Release.Name}}`}}",
+            "{{`{{.HelmfileCommand}}`}}\
+            ",
+          ]
 ```
 
 Let's say you ran `helmfile --environment prod sync`, the above hook results in executing:
@@ -1089,13 +1106,17 @@ It will allow you to write your helm releases with any language you like, while 
 In contrast to the per release hooks mentioned above these are run only once at the very beginning and end of the execution of a helmfile command and only the `prepare` and `cleanup` hooks are available respectively.
 
 They use the same syntax as per release hooks, but at the top level of your helmfile:
+
 ```yaml
 hooks:
-- events: ["prepare", "cleanup"]
-  showlogs: true
-  command: "echo"
-  args: ["{{`{{.Environment.Name}}`}}", "{{`{{.HelmfileCommand}}`}}\
-"]
+  - events: ["prepare", "cleanup"]
+    showlogs: true
+    command: "echo"
+    args: [
+        "{{`{{.Environment.Name}}`}}",
+        "{{`{{.HelmfileCommand}}`}}\
+        ",
+      ]
 ```
 
 ### Helmfile + Kustomize
@@ -1137,10 +1158,14 @@ Write `helmfile.yaml`:
 - name: kustomize
   chart: ./foo
   hooks:
-  - events: ["prepare", "cleanup"]
-    command: "../helmify"
-    args: ["{{`{{if eq .Event.Name \"prepare\"}}build{{else}}clean{{end}}`}}", "{{`{{.Release.Ch\
-art}}`}}", "{{`{{.Environment.Name}}`}}"]
+    - events: ["prepare", "cleanup"]
+      command: "../helmify"
+      args: [
+          '{{`{{if eq .Event.Name "prepare"}}build{{else}}clean{{end}}`}}',
+          "{{`{{.Release.Ch\
+          art}}`}}",
+          "{{`{{.Environment.Name}}`}}",
+        ]
 ```
 
 Run `helmfile --environment staging sync` and see it results in helmfile running `kustomize build foo-kustomize/overlays/staging > foo/templates/all.yaml`.
@@ -1188,7 +1213,8 @@ See #155 for more information on this topic.
 
 Some experimental features may be available for testing in perspective of being (or not) included in a future release.
 Those features are set using the environment variable `HELMFILE_EXPERIMENTAL`. Here is the current experimental feature :
-* `explicit-selector-inheritance` : remove today implicit cli selectors inheritance for composed helmfiles, see [composition selector](#selectors)
+
+- `explicit-selector-inheritance` : remove today implicit cli selectors inheritance for composed helmfiles, see [composition selector](#selectors)
 
 If you want to enable all experimental features set the env var to `HELMFILE_EXPERIMENTAL=true`
 
@@ -1216,12 +1242,17 @@ ArgoCD has support for kustomize/manifests/helm chart by itself. Why bother with
 The reasons may vary:
 
 1. You do want to manage applications with ArgoCD, while letting Helmfile manage infrastructure-related components like Calico/Cilium/WeaveNet, Linkerd/Istio, and ArgoCD itself.
-  - This way, any application deployed by ArgoCD has access to all the infrastructure.
-  - Of course, you can use ArgoCD's [Sync Waves and Phases](https://argoproj.github.io/argo-cd/user-guide/sync-waves/) for ordering the infrastructure and application installations. But it may be difficult to separate the concern between the infrastructure and apps and annotate K8s resources consistently when you have different teams for managing infra and apps.
+
+- This way, any application deployed by ArgoCD has access to all the infrastructure.
+- Of course, you can use ArgoCD's [Sync Waves and Phases](https://argoproj.github.io/argo-cd/user-guide/sync-waves/) for ordering the infrastructure and application installations. But it may be difficult to separate the concern between the infrastructure and apps and annotate K8s resources consistently when you have different teams for managing infra and apps.
+
 2. You want to review the exact K8s manifests being applied on pull-request time, before ArgoCD syncs.
-  - This is often better than using a kind of `HelmRelease` custom resources that obfuscates exactly what manifests are being applied, which makes reviewing harder.
+
+- This is often better than using a kind of `HelmRelease` custom resources that obfuscates exactly what manifests are being applied, which makes reviewing harder.
+
 3. Use Helmfile as the single-pane of glass for all the K8s resources deployed to your cluster(s).
-  - Helmfile can reduce repetition in K8s manifests across ArgoCD application
+
+- Helmfile can reduce repetition in K8s manifests across ArgoCD application
 
 For 1, you run `helmfile apply` on CI to deploy ArgoCD and the infrastructure components.
 
@@ -1242,7 +1273,6 @@ git push origin $BRANCH
 > to the directory relative to the specified path.
 
 so that they can be deployed by Argo CD as usual.
-
 
 The CI or bot can optionally submit a PR to be review by human, running:
 
